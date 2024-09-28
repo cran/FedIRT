@@ -1,4 +1,4 @@
-#' @title Federated 2PL estimate function
+#' @title Federated 2PL model
 #' @description This function implements a federated learning approach to estimate the parameters of the 2PL IRT model. It allows for collaborative estimation across multiple datasets, while maintaining the privacy of each individual data source. The federated 2PL model is particularly useful in contexts where data sharing might be limited due to privacy concerns or logistical constraints.
 #' @details The algorithm leverages federated learning techniques to estimate shared item parameters and individual ability levels without requiring the raw data to be combined into a single dataset.
 #' The estimation procedure is composed of several steps, including initialization, local computations at each data source, communication of summary statistics to a central server, and global parameter updates.
@@ -110,15 +110,15 @@ broadcast.exponentiation <- function(mat1, mat2) {
 #'
 #' @description A simple memoization function that stores the results of expensive function calls and reuses those results when the same inputs occur again. This technique greatly speeds up the computation of `fedirt` function by caching previously computed values.
 #'
-#' @param f Function to be memoized.
+#' @param f Function to be memd.
 #'
-#' @return Returns a memoized version of function `f` that will cache its previously computed results for faster subsequent evaluations, especially beneficial when applied to `fedirt`.
+#' @return Returns a memd version of function `f` that will cache its previously computed results for faster subsequent evaluations, especially beneficial when applied to `fedirt`.
 #'
 #' @examples
-#' # To memoize a function, simply wrap it with `memoize`:
-#' memoize(function(a,b){return(a+b)})
+#' # To mem a function, simply wrap it with `mem`:
+#' mem(function(a,b){return(a+b)})
 #' @export
-memoize <- function(f) {
+mem <- function(f) {
   memo <- new.env(parent = emptyenv())
   function(...) {
     key <- paste(list(...), collapse = " ,")
@@ -131,8 +131,7 @@ memoize <- function(f) {
 g = function(x) {
   return (exp(-0.5 * x * x) / sqrt(2 * pi))
 }
-
-#' Log-Likelihood of the federated 2PL Model
+#' @title Log-Likelihood of the federated 2PL Model
 #'
 #' @description Computes the log-likelihood of the Two-Parameter Logistic (2PL) IRT model given item parameters and response data. The computation utilizes numerical integration and is optimized through memoization for repeated evaluations.
 #'
@@ -165,25 +164,27 @@ logL = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(quadrature)
   })))
 
-  Pj = memoize(function(a, b) {
+  Pj = mem(function(a, b) {
     t = exp(-1 * broadcast.multiplication(a, broadcast.subtraction(b, t(X))))
     return (t / (1 + t))
   })
-  Qj = memoize(function(a, b) {
+  Qj = mem(function(a, b) {
     return (1 - Pj(a, b))
   })
 
-  log_Lik = memoize(function(a, b) {
+  log_Lik = mem(function(a, b) {
     data %*% log(Pj(a, b))  + (1 - data) %*% log(Qj(a, b))
   })
 
-  Lik = memoize(function(a, b) {
+  Lik = mem(function(a, b) {
     exp(log_Lik(a, b))
   })
 
   sum(log(matrix(apply(broadcast.multiplication(Lik(a, b), t(A)), c(1), sum))))
 }
-#' Gradient of Log-Likelihood for the federated 2PL Model
+
+
+#' @title Gradient of Log-Likelihood for the federated 2PL Model
 #'
 #' @description Calculates the gradients of the log-likelihood function with respect to the item discrimination (a) and difficulty (b) parameters for the Two-Parameter Logistic (2PL) Item Response Theory (IRT) model. This computation is vital for optimizing the item parameters via gradient-based optimization algorithms.
 #'
@@ -220,46 +221,46 @@ g_logL = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(quadrature)
   })))
 
-  Pj = memoize(function(a, b) {
+  Pj = mem(function(a, b) {
     t = exp(-1 * broadcast.multiplication(a, broadcast.subtraction(b, t(X))))
     return (t / (1 + t))
   })
-  Qj = memoize(function(a, b) {
+  Qj = mem(function(a, b) {
     return (1 - Pj(a, b))
   })
 
-  log_Lik = memoize(function(a, b) {
+  log_Lik = mem(function(a, b) {
     data %*% log(Pj(a, b))  + (1 - data) %*% log(Qj(a, b))
   })
 
-  Lik = memoize(function(a, b) {
+  Lik = mem(function(a, b) {
     exp(log_Lik(a, b))
   })
 
-  LA = memoize(function(a, b) {
+  LA = mem(function(a, b) {
     broadcast.multiplication(Lik(a,b), t(A))
   })
-  Pxy = memoize(function(a, b) {
+  Pxy = mem(function(a, b) {
     la = LA(a,b)
     sum_la = replicate(q, apply(la, c(1), sum))
     la / sum_la
   })
-  Pxyr = memoize(function(a, b) {
+  Pxyr = mem(function(a, b) {
     aperm(replicate(J, Pxy(a,b)), c(1, 3, 2)) * replicate(q, data)
   })
 
-  njk = memoize(function(a, b) {
+  njk = mem(function(a, b) {
     pxy = Pxy(a, b)
     matrix(apply(pxy, c(2), sum))
   })
-  rjk = memoize(function(a, b) {
+  rjk = mem(function(a, b) {
     pxyr = Pxyr(a, b)
     apply(pxyr, c(2, 3), sum)
   })
-  da = memoize(function(a, b) {
+  da = mem(function(a, b) {
     matrix(apply(-1 * broadcast.subtraction(b, t(X)) * (rjk(a, b) - broadcast.multiplication(Pj(a, b), t(njk(a, b)))), c(1), sum))
   })
-  db = memoize(function(a, b) {
+  db = mem(function(a, b) {
     -1 * a * matrix(apply((rjk(a, b) - broadcast.multiplication(Pj(a, b), t(njk(a, b)))), c(1), sum))
   })
 
@@ -283,23 +284,23 @@ my_personfit = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(quadrature)
   })))
 
-  Pj = memoize(function(a, b) {
+  Pj = mem(function(a, b) {
     t = exp(-1 * broadcast.multiplication(a, broadcast.subtraction(b, t(X))))
     return (t / (1 + t))
   })
-  Qj = memoize(function(a, b) {
+  Qj = mem(function(a, b) {
     return (1 - Pj(a, b))
   })
 
-  log_Lik = memoize(function(a, b) {
+  log_Lik = mem(function(a, b) {
     data %*% log(Pj(a, b))  + (1 - data) %*% log(Qj(a, b))
   })
 
-  Lik = memoize(function(a, b) {
+  Lik = mem(function(a, b) {
     exp(log_Lik(a, b))
   })
 
-  LA = memoize(function(a, b) {
+  LA = mem(function(a, b) {
     broadcast.multiplication(Lik(a,b), t(A))
   })
   result = list()

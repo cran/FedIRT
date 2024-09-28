@@ -1,9 +1,10 @@
+#' @noRd
 #' @title Federated gpcm model
-#' @description This function is only used to test the accuracy and processing time of this algorithm. It inputs a list of responding matrices and return the federated gpcm parameters.
+#' @description This function is used to test the accuracy and processing time of this algorithm. It inputs a list of responding matrices and return the federated gpcm parameters.
 #' Note: This function can only calculate one combined dataset. To use federated gpcm in distributed datasets, please use fedirt_gpcm().
 #' @details Input is a List of responding matrices from each school, every responding matrix is one site's data.
 #' @param inputdata A List of all responding matrix.
-#' @return A list with the estimated global discrimination a, global difficulty b, person's abilities ability, sites' abilities site, and log-likelihood value loglik.
+#' @return A list with the estimated global discrimination a, global difficulty b, person's abilities ability, sites' abilities site, log-likelihood value loglik, and standard error SE.
 #'
 #' @examples
 #' \donttest{
@@ -17,8 +18,8 @@
 #' @importFrom purrr map
 #' @importFrom pracma quadl
 #' @importFrom stats optim
+#' @importFrom stats optimHess
 
-#' @export
 fedirt_gpcm_data = function(inputdata) {
 
   my_data <- inputdata
@@ -28,65 +29,7 @@ fedirt_gpcm_data = function(inputdata) {
   M <- apply(my_data[[1]], 2, function(df) {
     max(df)
   })
-  broadcast.fortmat <- function(mat1, mat2) {
-    row1 <- nrow(mat1)
-    col1 <- ncol(mat1)
-    row2 <- nrow(mat2)
-    col2 <- ncol(mat2)
-    if(col1 != 1 && row2 != 1) {
-      stop("illegal operation: not 1")
-    }
-    if(col1 == 1) {
-      mat1_new <- mat1[, rep(1:col1, col2)]
-    } else if(col1 != col2) {
-      stop("illegal operation: col1")
-    } else {
-      mat1_new <- mat1
-    }
-    if(row2 == 1) {
-      mat2_new <- mat2[rep(1:row2, each=row1), ]
-    } else if(row2 != row1) {
-      stop("illegal operation: row2")
-    } else {
-      mat2_new <- mat2
-    }
 
-    list(mat1_new, mat2_new)
-  }
-  broadcast.multiplication <- function(mat1, mat2) {
-    format_result = broadcast.fortmat(mat1, mat2)
-    mat1_new = format_result[[1]]
-    mat2_new = format_result[[2]]
-    return(mat1_new * mat2_new)
-  }
-  broadcast.divide <- function(mat1, mat2) {
-    format_result = broadcast.fortmat(mat1, mat2)
-    mat1_new = format_result[[1]]
-    mat2_new = format_result[[2]]
-    return(mat1_new / mat2_new)
-  }
-  broadcast.subtraction <- function(mat1, mat2) {
-    format_result = broadcast.fortmat(mat1, mat2)
-    mat1_new = format_result[[1]]
-    mat2_new = format_result[[2]]
-    return(mat1_new - mat2_new)
-  }
-  broadcast.exponentiation <- function(mat1, mat2) {
-    format_result = broadcast.fortmat(mat1, mat2)
-    mat1_new = format_result[[1]]
-    mat2_new = format_result[[2]]
-    return(mat1_new ^ mat2_new)
-  }
-  memoize <- function(f) {
-    memo <- new.env(parent = emptyenv())
-    function(...) {
-      key <- paste(list(...), collapse = " ,")
-      if(!exists(as.character(key), envir = memo)) {
-        memo[[as.character(key)]] <- f(...)
-      }
-      memo[[as.character(key)]]
-    }
-  }
   g = function(x) {
     return (exp(-0.5 * x * x) / sqrt(2 * pi))
   }
@@ -104,14 +47,14 @@ fedirt_gpcm_data = function(inputdata) {
       return(quadrature)
     })))
 
-    Px = memoize(function(a, b) {
+    Px = mem(function(a, b) {
       - rbind(rep(0, length(X)), a * broadcast.subtraction(t(b), t(X)))
     })
-    Px_sum = memoize(function(a, b) {
+    Px_sum = mem(function(a, b) {
       exp(apply(Px(a,b),2,cumsum))
     })
 
-    Pjx = memoize(function(a, b, j) {
+    Pjx = mem(function(a, b, j) {
       # 提供所有答案的概率:  4:21
       px_sum = Px_sum(a,b)
       sum_px_sum = matrix(colSums(px_sum), nrow = 1)
@@ -121,7 +64,7 @@ fedirt_gpcm_data = function(inputdata) {
       # }
       return(broadcast.divide(px_sum, sum_px_sum))
     })
-    log_Lik_j = memoize(function(a, b, j) {
+    log_Lik_j = mem(function(a, b, j) {
       # 根据答案 data 选对应的概率
       # 原来： N : 21 = N:10 * 10:21
       # 现在： N : 21 = 10 * (N:1 select 3:21)
@@ -133,7 +76,7 @@ fedirt_gpcm_data = function(inputdata) {
       return(selected)
     })
 
-    Lik_j = memoize(function(a, b, j) {
+    Lik_j = mem(function(a, b, j) {
       exp(log_Lik_j(a,b,j))
     })
 
@@ -159,14 +102,14 @@ fedirt_gpcm_data = function(inputdata) {
 #       return(quadrature)
 #     })))
 #
-#     Px = memoize(function(a, b) {
+#     Px = mem(function(a, b) {
 #       - rbind(rep(0, length(X)), a * broadcast.subtraction(t(b), t(X)))
 #     })
-#     Px_sum = memoize(function(a, b) {
+#     Px_sum = mem(function(a, b) {
 #       exp(apply(Px(a,b),2,cumsum))
 #     })
 #
-#     Pjx = memoize(function(a, b, j) {
+#     Pjx = mem(function(a, b, j) {
 #       # 提供所有答案的概率:  4:21
 #       px_sum = Px_sum(a,b)
 #       sum_px_sum = matrix(colSums(px_sum), nrow = 1)
@@ -176,7 +119,7 @@ fedirt_gpcm_data = function(inputdata) {
 #       # }
 #       return(broadcast.divide(px_sum, sum_px_sum))
 #     })
-#     log_Lik_j = memoize(function(a, b, j) {
+#     log_Lik_j = mem(function(a, b, j) {
 #       # 根据答案 data 选对应的概率
 #       # 原来： N : 21 = N:10 * 10:21
 #       # 现在： N : 21 = 10 * (N:1 select 3:21)
@@ -188,34 +131,34 @@ fedirt_gpcm_data = function(inputdata) {
 #       return(selected)
 #     })
 #
-#     Lik_j = memoize(function(a, b, j) {
+#     Lik_j = mem(function(a, b, j) {
 #       exp(log_Lik_j(a,b,j))
 #     })
-#     LA = memoize(function(a, b) {
+#     LA = mem(function(a, b) {
 #       broadcast.multiplication(Lik(a,b), t(A))
 #       # 79 * 21
 #     })
-#     Pxy = memoize(function(a, b) {
+#     Pxy = mem(function(a, b) {
 #       la = LA(a,b) # 79 * 21
 #       sum_la = replicate(q, apply(la, c(1), sum)) # 79 * 21
 #       la / sum_la # 79 * 21
 #     })
-#     Pxyr = memoize(function(a, b) {
+#     Pxyr = mem(function(a, b) {
 #       aperm(replicate(J, Pxy(a,b)), c(1, 3, 2)) * replicate(q, data) # 10 * 79 * 21
 #     })
 #
-#     njk = memoize(function(a, b) {
+#     njk = mem(function(a, b) {
 #       pxy = Pxy(a, b)
 #       matrix(apply(pxy, c(2), sum)) # 21 * 1
 #     })
-#     rjk = memoize(function(a, b) {
+#     rjk = mem(function(a, b) {
 #       pxyr = Pxyr(a, b)
 #       apply(pxyr, c(2, 3), sum) # 10 * 21
 #     })
-#     da = memoize(function(a, b) {
+#     da = mem(function(a, b) {
 #       matrix(apply(-1 * broadcast.subtraction(b, t(X)) * (rjk(a, b) - broadcast.multiplication(Pj(a, b), t(njk(a, b)))), c(1), sum))
 #     })
-#     db = memoize(function(a, b) {
+#     db = mem(function(a, b) {
 #       -1 * a * matrix(apply((rjk(a, b) - broadcast.multiplication(Pj(a, b), t(njk(a, b)))), c(1), sum))
 #     })
 #
@@ -279,23 +222,23 @@ fedirt_gpcm_data = function(inputdata) {
 #       return(quadrature)
 #     })))
 #
-#     Pj = memoize(function(a, b) {
+#     Pj = mem(function(a, b) {
 #       t = exp(-1 * broadcast.multiplication(a, broadcast.subtraction(b, t(X))))
 #       return (t / (1 + t))
 #     })
-#     Qj = memoize(function(a, b) {
+#     Qj = mem(function(a, b) {
 #       return (1 - Pj(a, b))
 #     })
 #
-#     log_Lik = memoize(function(a, b) {
+#     log_Lik = mem(function(a, b) {
 #       data %*% log(Pj(a, b))  + (1 - data) %*% log(Qj(a, b))
 #     })
 #
-#     Lik = memoize(function(a, b) {
+#     Lik = mem(function(a, b) {
 #       exp(log_Lik(a, b))
 #     })
 #
-#     LA = memoize(function(a, b) {
+#     LA = mem(function(a, b) {
 #       broadcast.multiplication(Lik(a,b), t(A))
 #     })
 #     result = list()
@@ -311,24 +254,31 @@ fedirt_gpcm_data = function(inputdata) {
 
 
   fed_irt_entry = function(data) {
-    get_new_ps = function(ps_old) {
-      # "Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "SANN", "Brent"
-      optim(par = ps_old, fn = logL_entry, method = "BFGS", control = list(fnscale=-1, trace = 0,  maxit = 10000))
+      get_new_ps = function(ps_old) {
+        optim_result = optim(par = ps_old, fn = logL_entry, method = "BFGS",
+                             control = list(fnscale=-1, trace = 0, maxit = 10000), hessian = TRUE)
+        hessian_adjusted <- -optim_result$hessian
+        hessian_inv = solve(hessian_adjusted)
+
+        SE = sqrt(diag(hessian_inv))
+        list(result = optim_result, SE = SE)
     }
+
     ps_init = c(rep(1, J), rep(0, sum(M)))
-    # print("fedirt_gpcm 2::")
-    # print(M)
-    # print(J)
-    # print(sum(M))
-    # print(ps_init)
-    ps_next = get_new_ps(ps_init)
+
+    optim_result = get_new_ps(ps_init)
+    ps_next = optim_result$result
     ps_next$loglik = logL_entry(ps_next$par)
 
     ps_next$b = ps_next$par[(J+1):(J+sum(M))]
     ps_next$a = ps_next$par[1:J]
 
+    ps_next$SE$b = optim_result$SE[(J+1):(J+sum(M))]
+    ps_next$SE$a = optim_result$SE[1:J]
+
     ps_next
   }
+
 
   fed_irt_entry(inputdata)
 

@@ -21,10 +21,8 @@
 #' \item \code{b}: Numeric vector of estimated item difficulty parameters.
 #' }
 #'
-#' #' @references
-#' Muraki, E. (1992). "A generalized partial credit model: Application of an EM algorithm."
-#' \emph{Applied Psychological Measurement}, \bold{16}(2), 159--176.
-#' \doi{10.1177/014662169201600206}
+#' @references
+#' Muraki, E. (1992). A generalized partial credit model: Application of an EM algorithm. \emph{Applied Psychological Measurement}, 16(2), 159--176. \doi{10.1177/014662169201600206}
 #'
 #' @importFrom purrr map
 #' @importFrom pracma quadl
@@ -50,7 +48,8 @@ fedirt_gpcm = function(J, M,logL_entry, g_logL_entry) {
 
   ps_next
 }
-#' Log-Likelihood of the federated graded Model
+
+#' @title Log-Likelihood of the federated graded Model
 #'
 #' @description Computes the log-likelihood of the graded IRT model given item parameters and response data. The computation utilizes numerical integration and is optimized through memoization for repeated evaluations.
 #'
@@ -86,14 +85,14 @@ logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(quadrature)
   })))
 
-  Px = memoize(function(a, b) {
+  Px = mem(function(a, b) {
     - rbind(rep(0, length(X)), a * broadcast.subtraction(t(b), t(X)))
   })
-  Px_sum = memoize(function(a, b) {
+  Px_sum = mem(function(a, b) {
     exp(apply(Px(a,b),2,cumsum))
   })
 
-  Pjx = memoize(function(a, b, j) {
+  Pjx = mem(function(a, b, j) {
     # 提供所有答案的概率:  4:21
     px_sum = Px_sum(a,b)
     sum_px_sum = matrix(colSums(px_sum), nrow = 1)
@@ -103,7 +102,7 @@ logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     # }
     return(broadcast.divide(px_sum, sum_px_sum))
   })
-  log_Lik_j = memoize(function(a, b, j) {
+  log_Lik_j = mem(function(a, b, j) {
     # 根据答案 data 选对应的概率
     # 原来： N : 21 = N:10 * 10:21
     # 现在： N : 21 = 10 * (N:1 select 3:21)
@@ -115,7 +114,7 @@ logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(selected)
   })
 
-  Lik_j = memoize(function(a, b, j) {
+  Lik_j = mem(function(a, b, j) {
     exp(log_Lik_j(a,b,j))
   })
 
@@ -126,7 +125,8 @@ logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
   }
   sum(log(matrix(apply(broadcast.multiplication(exp(finalLogL), t(A)), c(1), sum))))
 }
-#' Gradient of Log-Likelihood for the federated graded Model
+
+#' @title Gradient of Log-Likelihood for the federated graded Model
 #'
 #' @description Calculates the gradients of the log-likelihood function with respect to the item discrimination (a) and difficulty (b) parameters for the graded IRT model. This computation is vital for optimizing the item parameters via gradient-based optimization algorithms.
 #'
@@ -162,14 +162,14 @@ g_logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(quadrature)
   })))
 
-  Px = memoize(function(a, b) {
+  Px = mem(function(a, b) {
     - rbind(rep(0, length(X)), a * broadcast.subtraction(t(b), t(X)))
   })
-  Px_sum = memoize(function(a, b) {
+  Px_sum = mem(function(a, b) {
     exp(apply(Px(a,b),2,cumsum))
   })
 
-  Pjx = memoize(function(a, b, j) {
+  Pjx = mem(function(a, b, j) {
     # 提供所有答案的概率:  4:21
     px_sum = Px_sum(a,b)
     sum_px_sum = matrix(colSums(px_sum), nrow = 1)
@@ -179,7 +179,7 @@ g_logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     # }
     return(broadcast.divide(px_sum, sum_px_sum))
   })
-  log_Lik_j = memoize(function(a, b, j) {
+  log_Lik_j = mem(function(a, b, j) {
     # 根据答案 data 选对应的概率
     # 原来： N : 21 = N:10 * 10:21
     # 现在： N : 21 = 10 * (N:1 select 3:21)
@@ -191,35 +191,35 @@ g_logL_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound = 3) {
     return(selected)
   })
 
-  Lik_j = memoize(function(a, b, j) {
+  Lik_j = mem(function(a, b, j) {
     exp(log_Lik_j(a,b,j))
   })
   # zby 标注尺寸
-  LA = memoize(function(a, b) {
+  LA = mem(function(a, b) {
     broadcast.multiplication(Lik(a,b), t(A))
     # 79 * 21
   })
-  Pxy = memoize(function(a, b) {
+  Pxy = mem(function(a, b) {
     la = LA(a,b) # 79 * 21
     sum_la = replicate(q, apply(la, c(1), sum)) # 79 * 21
     la / sum_la # 79 * 21
   })
-  Pxyr = memoize(function(a, b) {
+  Pxyr = mem(function(a, b) {
     aperm(replicate(J, Pxy(a,b)), c(1, 3, 2)) * replicate(q, data) # 10 * 79 * 21
   })
 
-  njk = memoize(function(a, b) {
+  njk = mem(function(a, b) {
     pxy = Pxy(a, b)
     matrix(apply(pxy, c(2), sum)) # 21 * 1
   })
-  rjk = memoize(function(a, b) {
+  rjk = mem(function(a, b) {
     pxyr = Pxyr(a, b)
     apply(pxyr, c(2, 3), sum) # 10 * 21
   })
-  da = memoize(function(a, b) {
+  da = mem(function(a, b) {
     matrix(apply(-1 * broadcast.subtraction(b, t(X)) * (rjk(a, b) - broadcast.multiplication(Pj(a, b), t(njk(a, b)))), c(1), sum))
   })
-  db = memoize(function(a, b) {
+  db = mem(function(a, b) {
     -1 * a * matrix(apply((rjk(a, b) - broadcast.multiplication(Pj(a, b), t(njk(a, b)))), c(1), sum))
   })
 
@@ -243,23 +243,23 @@ my_personfit_gpcm = function(a, b, data, q = 21, lower_bound = -3, upper_bound =
     return(quadrature)
   })))
 
-  Pj = memoize(function(a, b) {
+  Pj = mem(function(a, b) {
     t = exp(-1 * broadcast.multiplication(a, broadcast.subtraction(b, t(X))))
     return (t / (1 + t))
   })
-  Qj = memoize(function(a, b) {
+  Qj = mem(function(a, b) {
     return (1 - Pj(a, b))
   })
 
-  log_Lik = memoize(function(a, b) {
+  log_Lik = mem(function(a, b) {
     data %*% log(Pj(a, b))  + (1 - data) %*% log(Qj(a, b))
   })
 
-  Lik = memoize(function(a, b) {
+  Lik = mem(function(a, b) {
     exp(log_Lik(a, b))
   })
 
-  LA = memoize(function(a, b) {
+  LA = mem(function(a, b) {
     broadcast.multiplication(Lik(a,b), t(A))
   })
   result = list()
